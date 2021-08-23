@@ -1,0 +1,5 @@
+
+annotation_files/*
+references/*
+vcf_files/*
+full_feature_tab.csv
