@@ -1,8 +1,16 @@
 # SNPGenie_Data_Prep
 
-## Preparing raw data
+## Step 1 - Mapping reads onto genomes
 
-### annotation files
+use `mapping_all.sh`
+
+## Step 2 - Variant calling
+
+use `snp_call.sh`
+
+## Step 3 - Gathering data for SNPGenie
+
+### Annotation files
 
 The folder `annotation_files/` should contain at least `feature table` and `reference sequence`. 
 
@@ -14,4 +22,12 @@ Names of `feature table` files **must** starts with "Feature table file-", e.g. 
 
 ### VCF files
 
-`variant calls` should be generated 
+Variant calling files should be generated using `snp_call.sh` and the results should be placed into `vcf_files/`.
+
+### Run `data_prep.py`
+
+If all data are properly gathered and orgnized as described before, a simple run should get everything ready for runing SNPGenie pipeline.
+
+## Step 4 - Runing SNPGenie
+
+use `snpgenie_run_all.sh`
