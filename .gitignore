@@ -1,5 +1,6 @@
 
 annotation_files/*
 references/*
+snpgenie_input/*
 vcf_files/*
 full_feature_tab.csv
