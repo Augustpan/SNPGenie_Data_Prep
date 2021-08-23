@@ -4,3 +4,4 @@ references/*
 snpgenie_input/*
 vcf_files/*
 full_feature_tab.csv
+manifest_examples/*
