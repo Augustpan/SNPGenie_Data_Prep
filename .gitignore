@@ -1,7 +1,9 @@
-
 annotation_files/*
 references/*
 snpgenie_input/*
 vcf_files/*
 full_feature_tab.csv
 manifest_examples/*
+varscan_vcfs/*
+varscan_vars/*
+bcftools_vcfs/*
