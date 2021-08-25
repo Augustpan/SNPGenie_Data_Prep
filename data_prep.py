@@ -6,9 +6,96 @@ import pandas as pd
 import os, os.path
 import re
 
-def generate_gtf_and_reference(feature_tab="full_feature_tab.csv", input_dir="snpgenie_input", output_dir="snpgenie_input"):
+def varscan2vcf(fname, output_dir=""):
+    '''
+        Convert VarScan2 mpileup2snp output format to VCF 4 format
+
+        The converted VCF file contains only AD and DP in INFO and FORMAT columns, 
+        which is ready for use of SNPGenie within group analysis.
+    '''
+    print(fname)
+    df = pd.read_csv(fname, sep="\t")
+
+    # VCF headers/metadata
+    vcf = [
+        '##fileformat=VCFv4.1',
+        '##source=VarScan2',
+        '##INFO=<ID=DP,Number=1,Type=Integer,Description="">',
+        '##INFO=<ID=AD,Number=2,Type=Integer,Description="">',
+        '##FILTER=<ID=str10,Description="">',
+        '##FILTER=<ID=indelError,Description="">',
+        '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="">',
+        '##FORMAT=<ID=AD,Number=2,Type=Integer,Description="">',
+        '#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{}'.format(fname)
+    ]
+
+    # VCF rows
+    for _, row in df.iterrows():
+        sp = row[4].split(":")
+        fmt = {
+            "CHROM": row.Chrom,
+            "POS": row.Position,
+            "ID": ".",
+            "REF": row.Ref,
+            "ALT": row.Var,
+            "QUAL": ".",
+            "FILTER": row[5].split(":")[0],
+            "INFO": "DP={};AD={},{}".format(sp[1], sp[2], sp[3]),
+            "FORMAT": "DP:AD",
+            "SAMPLE": "{}:{},{}".format(sp[1], sp[2], sp[3])
+        }
+        
+        s = "{CHROM}\t{POS}\t{ID}\t{REF}\t{ALT}\t{QUAL}\t{FILTER}\t{INFO}\t{FORMAT}\t{SAMPLE}".format(**fmt)
+        vcf.append(s)
+
+    # Output to VCF file
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
+    a, _ = os.path.splitext(fname)
+    out_fname = os.path.join(output_dir, "{}.vcf".format(a))
+
+    with open(out_fname, "w") as f:
+        f.write("\n".join(vcf))
+
+def update_varscan_vcf(fname, output_dir=""):
+    with open(fname) as f:
+        lines = f.readlines()
+
+    new_lines = []
+    for line in lines:
+        line = line.strip()
+        m = re.match(".+\t\d+\t\.\t\w+\t\w+\t\.\t\w+\t.+\t(.+)\t(.+)", line)
+        if m:
+            col = m.group(1).split(":")
+            val = m.group(2).split(":")
+            DP_index = col.index("DP")
+            AD_index = col.index("AD")
+            
+            new_AD_value = "{},{}".format(int(val[DP_index])-int(val[AD_index]), val[AD_index])
+            val[AD_index] = new_AD_value
+            new_line = re.sub("(.+\t\d+\t\.\t\w+\t\w+\t\.\t\w+\t.+\t.+\t).+", r"\g<1>{}".format(":".join(val)), line)
+            new_lines.append(new_line)
+        elif line.startswith("#"):
+            new_lines.append(line)
+        else:
+            print("UNRECOGNIZED LINE: ", line)
+    
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
+
+    with open(os.path.join(output_dir, os.path.basename(fname)), "w") as f:
+        f.write("\n".join(new_lines))
+
+def generate_gtf_and_reference(feature_tab="full_feature_tab.csv", input_dir="snpgenie_input", manifest="manifest_vcf", output_dir="snpgenie_input"):
     df = pd.read_csv(feature_tab) 
     df = df[df['4'] != "gene"] # drop all records annotated as gene, only CDS are reserved
+    
+    if manifest:
+        manifest_vcf = {}
+        with open(manifest) as f:
+            for line in f.readlines():
+                a, b = line.strip().split("@")
+                manifest_vcf[a] = b
     
     for fname in os.listdir(input_dir): # transverse the input_dir, find all *.vcf files
         if not fname.endswith(".vcf"):
@@ -24,7 +111,10 @@ def generate_gtf_and_reference(feature_tab="full_feature_tab.csv", input_dir="sn
             if not line.startswith("#"):
                 seq_name = line.split()[0]
                 break
-
+        if manifest:
+            m = re.match("VCF(\d+)_SEQ\d+.vcf", os.path.basename(fname))
+            ref_path = manifest_vcf[m.group(1)]
+        
         slist = []
         for _, row in df[df['1'] == seq_name].iterrows(): # convert feature table to GTF format
             s = "\t".join(
@@ -36,7 +126,7 @@ def generate_gtf_and_reference(feature_tab="full_feature_tab.csv", input_dir="sn
                  ".", 
                  "+" if row['3'] > row['2'] else "-", 
                  "0", 
-                 'gene_id "{}";'.format(row['5'])])
+                 'gene_id "{}";'.format(row['5'].replace("(","").replace(")",""))])
             slist.append(s)
         
         a, _ = os.path.splitext(fname)
@@ -51,7 +141,45 @@ def generate_gtf_and_reference(feature_tab="full_feature_tab.csv", input_dir="sn
                 SeqIO.write(seq, os.path.join(output_dir, "{}.fasta".format(a)), "fasta")
                 break
 
-def split_vcf(input_dir="vcf_files", output_dir="snpgenie_input"):
+def split_vcf_varscan(input_dir="varscan_vcfs", output_dir="snpgenie_input"):
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
+
+    for fname in os.listdir(input_dir):
+        if not fname.endswith(".vcf"):
+            continue
+        
+        in_fname = os.path.join(input_dir, fname)
+        prefix, _ = os.path.splitext(os.path.basename(fname))
+
+        with open(in_fname) as f:
+            lines = f.readlines()
+        
+        meta = []
+        vcf = {}
+        for line in lines:
+            if line.startswith("#"):
+                meta.append(line)
+            else:
+                seq_name = line.split()[0]
+                if seq_name in vcf:
+                    vcf[seq_name].append(line)
+                else:
+                    vcf[seq_name] = [line]
+        
+        idx = 0
+        for key in vcf:
+            idx += 1
+            text = "".join(meta+vcf[key])
+            if vcf[key][-1].startswith("#"):
+                print("NO VARIANT WAS CALLED IN: ", key)
+                continue
+            
+            out_fname = os.path.join(output_dir, "VCF{}_SEQ{}.vcf".format(prefix,idx))
+            with open(out_fname, "w") as f:
+                f.write(text)
+
+def split_vcf_bcftools(input_dir="bcftools_vcfs", output_dir="snpgenie_input"):
     if not os.path.exists(output_dir):
         os.mkdir(output_dir)
 
@@ -93,6 +221,7 @@ def split_vcf(input_dir="vcf_files", output_dir="snpgenie_input"):
             idx += 1
             text = "".join(vcf[key])
             if vcf[key][-1].startswith("#"):
+                print("NO VARIANT WAS CALLED IN: ", key)
                 continue
             
             out_fname = os.path.join(output_dir, "VCF{}_SEQ{}.vcf".format(prefix,idx))
@@ -199,9 +328,27 @@ def rename_fasta_seqs(input_dir="annotation_files", output_dir="references"):
     for key in seqs:
         SeqIO.write(seqs[key], os.path.join(output_dir, "ref_{}.fa".format(key)), "fasta")
 
-
 if __name__ == "__main__":
     rename_fasta_seqs()
     summarize_feature_table()
-    split_vcf()
-    generate_gtf_and_reference()
+
+    vc_method = "varscan_vcf"
+    if vc_method == "varscan_var":
+        var_files = "varscan_vars"
+        for fname in os.listdir(var_files):
+            if fname.endswith(".var"):
+                varscan2vcf(os.path.join(var_files, fname), "varscan_vcfs")
+        split_vcf_varscan()
+        generate_gtf_and_reference()
+    elif vc_method == "varscan_vcf":
+        vcf_files = "varscan_vcfs"
+        for fname in os.listdir(vcf_files):
+            if fname.endswith(".vcf"):
+                update_varscan_vcf(os.path.join(vcf_files, fname), output_dir="varscan_vcfs")
+        split_vcf_varscan()
+        generate_gtf_and_reference()
+    elif vc_method == "bcftools":
+        split_vcf_bcftools()
+        generate_gtf_and_reference(manifest="")
+    else:
+        print("Invalid vc_method")
