@@ -1,8 +1,3 @@
-# File:         snp_call.sh
-# Date:         2021-08-23 8:00AM
-# Author:       Yuanfei Pan
-# Description:  SNP calls from sorted *.bam files.
-
 #! /bin/bash
 
 source /home/dell2/Miniconda3/etc/profile.d/conda.sh

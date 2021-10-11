@@ -1,8 +1,3 @@
-# File:         mapping_all.sh
-# Date:         2021-08-23 8:00AM
-# Author:       Yuanfei Pan
-# Description:  Mapping reads onto reference sequences using bowtie2.
-
 #! /bin/bash
 
 source /home/dell2/Miniconda3/etc/profile.d/conda.sh
